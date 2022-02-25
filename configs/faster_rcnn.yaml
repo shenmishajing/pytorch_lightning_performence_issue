@@ -1,0 +1,204 @@
+trainer:
+    # debug
+    limit_train_batches: 1.0
+    limit_val_batches: 1.0
+    limit_test_batches: 1.0
+    limit_predict_batches: 1.0
+    fast_dev_run: false
+    overfit_batches: 0.0
+    # train
+    max_epochs: 12
+    min_epochs: null
+    max_steps: -1
+    min_steps: null
+    max_time: null
+    # gradient clip
+    gradient_clip_val: null
+    gradient_clip_algorithm: null
+    # path
+    weights_save_path: work_dirs
+    # gpus
+    num_nodes: 1
+    num_processes: 1
+    gpus: -1
+    strategy: ddp_find_unused_parameters_false
+    sync_batchnorm: false
+    # speed up
+    precision: 32
+    auto_lr_find: false
+    detect_anomaly: true
+    auto_scale_batch_size: false
+    accumulate_grad_batches: null
+    profiler: null
+    # val and log
+    check_val_every_n_epoch: 1
+    val_check_interval: 1.0
+    flush_logs_every_n_steps: null
+    log_every_n_steps: 50
+    track_grad_norm: -1
+
+model:
+    class_path: models.MMDetModelAdapter
+    init_args:
+        model:
+            class_path: models.TwoStageDetector
+            init_args:
+                backbone:
+                    type: ResNet
+                    depth: 50
+                    frozen_stages: 1
+                    norm_eval: true
+                    num_stages: 4
+                    out_indices: [ 0, 1, 2, 3 ]
+                    style: pytorch
+                    norm_cfg:
+                        requires_grad: true
+                        type: BN
+                    init_cfg:
+                        checkpoint: torchvision://resnet50
+                        type: Pretrained
+                neck:
+                    type: FPN
+                    in_channels: [ 256, 512, 1024, 2048 ]
+                    num_outs: 5
+                    out_channels: 256
+                roi_head:
+                    type: StandardRoIHead
+                    bbox_roi_extractor:
+                        type: SingleRoIExtractor
+                        featmap_strides: [ 4, 8, 16, 32 ]
+                        out_channels: 256
+                        roi_layer:
+                            type: RoIAlign
+                            output_size: 7
+                            sampling_ratio: 0
+                    bbox_head:
+                        type: Shared2FCBBoxHead
+                        fc_out_channels: 1024
+                        in_channels: 256
+                        num_classes: 80
+                        reg_class_agnostic: false
+                        roi_feat_size: 7
+                        bbox_coder:
+                            type: DeltaXYWHBBoxCoder
+                            target_means: [ 0.0, 0.0, 0.0, 0.0 ]
+                            target_stds: [ 0.1, 0.1, 0.2, 0.2 ]
+                        loss_bbox:
+                            type: L1Loss
+                            loss_weight: 1.0
+                        loss_cls:
+                            type: CrossEntropyLoss
+                            loss_weight: 1.0
+                            use_sigmoid: false
+                rpn_head:
+                    type: RPNHead
+                    anchor_generator:
+                        type: AnchorGenerator
+                        ratios: [ 0.5, 1.0, 2.0 ]
+                        scales: [ 8 ]
+                        strides: [ 4, 8, 16, 32, 64 ]
+                    bbox_coder:
+                        type: DeltaXYWHBBoxCoder
+                        target_means: [ 0.0, 0.0, 0.0, 0.0 ]
+                        target_stds: [ 0.1, 0.1, 0.2, 0.2 ]
+                    feat_channels: 256
+                    in_channels: 256
+                    loss_bbox:
+                        type: L1Loss
+                        loss_weight: 1.0
+                    loss_cls:
+                        type: CrossEntropyLoss
+                        loss_weight: 1.0
+                        use_sigmoid: true
+                train_cfg:
+                    rcnn:
+                        debug: false
+                        pos_weight: -1
+                        assigner:
+                            type: MaxIoUAssigner
+                            ignore_iof_thr: -1
+                            match_low_quality: false
+                            min_pos_iou: 0.5
+                            neg_iou_thr: 0.5
+                            pos_iou_thr: 0.5
+                        sampler:
+                            type: RandomSampler
+                            add_gt_as_proposals: true
+                            neg_pos_ub: -1
+                            num: 512
+                            pos_fraction: 0.25
+                    rpn:
+                        allowed_border: -1
+                        debug: false
+                        pos_weight: -1
+                        assigner:
+                            type: MaxIoUAssigner
+                            ignore_iof_thr: -1
+                            match_low_quality: true
+                            min_pos_iou: 0.3
+                            neg_iou_thr: 0.3
+                            pos_iou_thr: 0.7
+                        sampler:
+                            type: RandomSampler
+                            add_gt_as_proposals: false
+                            neg_pos_ub: -1
+                            num: 256
+                            pos_fraction: 0.5
+                    rpn_proposal:
+                        max_per_img: 1000
+                        min_bbox_size: 0
+                        nms:
+                            iou_threshold: 0.7
+                            type: nms
+                        nms_pre: 2000
+                test_cfg:
+                    rcnn:
+                        max_per_img: 100
+                        nms:
+                            type: nms
+                            iou_threshold: 0.5
+                        score_thr: 0.05
+                    rpn:
+                        max_per_img: 1000
+                        min_bbox_size: 0
+                        nms:
+                            type: nms
+                            iou_threshold: 0.7
+                        nms_pre: 1000
+
+data:
+    class_path: datasets.MMDetDataSetAdapter
+    init_args:
+        dataset_cfg:
+            type: CocoDataset
+            pipeline:
+                -   type: LoadImageFromFile
+                    color_type: color
+                -   type: LoadAnnotations
+                    with_bbox: true
+                -   type: Resize
+                    img_scale: [ 1333, 800 ]
+                    keep_ratio: true
+                -   type: RandomFlip
+                    flip_ratio: 0.5
+                -   type: Normalize
+                    mean: [ 123.675, 116.28, 103.53 ]
+                    std: [ 58.395, 57.12, 57.375 ]
+                    to_rgb: true
+                -   type: Pad
+                    size_divisor: 32
+                -   type: DefaultFormatBundle
+                -   type: Collect
+                    keys: [ img, gt_bboxes, gt_labels ]
+            data_root: data/coco
+            ann_file: annotations/instances_${split}2017.json
+            img_prefix: ${split}2017
+        split_format_to: [ ann_file, img_prefix ]
+        data_loader_config:
+            batch_size: 4
+            num_workers: 4
+            prefetch_factor: 2
+            drop_last: true
+
+# seed
+seed_everything: null
