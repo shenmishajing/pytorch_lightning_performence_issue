@@ -42,7 +42,7 @@ class MMDetModelAdapter(LightningModule, ABC):
         super().log(*args, batch_size = batch_size, **kwargs)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.model.parameters())
+        return torch.optim.SGD(self.model.parameters(), lr = 0.02, momentum = 0.9, weight_decay = 0.0001)
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
